@@ -10,5 +10,7 @@ declare module 'pokersolver' {
     cards: unknown[]
     name: string
     descr: string
+    /** Returns 1 if `this` loses to `other`, -1 if `this` wins, 0 on a tie. */
+    compare(other: Hand): number
   }
 }

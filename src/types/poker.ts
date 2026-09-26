@@ -1,4 +1,5 @@
 import type { Card } from './card'
+import type { SkillLevel } from '../personas/skill'
 
 /** Standard 9-handed full-ring positions, in acting order preflop. */
 export const POSITIONS = [
@@ -39,6 +40,8 @@ export interface Player {
   stack: number
   seat: number // 0-8, table seating order
   personaId?: string // set for bots; ground truth for scoring
+  /** Set for bots; independent of personaId — see src/personas/skill.ts. */
+  skillLevel?: SkillLevel
   isFolded: boolean
   isAllIn: boolean
   holeCards?: Card[] // hidden for bots until showdown/reveal

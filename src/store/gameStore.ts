@@ -5,6 +5,7 @@ import { nextButtonSeat } from '../engine/positions'
 import { assignBotNames } from '../personas/botNames'
 import { decideBotAction } from '../personas/botDecision'
 import { getPersona, PERSONAS } from '../personas/personas'
+import { randomSkillLevel } from '../personas/skill'
 import { useRangeTrackerStore } from './rangeTrackerStore'
 import { POSITIONS, type BlindsConfig, type HandState, type Player } from '../types/poker'
 
@@ -50,6 +51,9 @@ function initialPlayers(): Player[] {
       stack: STARTING_STACK,
       seat,
       personaId: persona.id,
+      // Independent of persona — see src/personas/skill.ts. A "beginner
+      // maniac" and an "advanced maniac" share a style but not a skill level.
+      skillLevel: randomSkillLevel(),
       isFolded: false,
       isAllIn: false,
     } satisfies Player

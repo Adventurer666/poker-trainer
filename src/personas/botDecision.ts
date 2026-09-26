@@ -1,11 +1,21 @@
 import { evaluateHand } from '../engine/handEvaluator'
 import { legalActions } from '../engine/bettingEngine'
 import type { ActionInput } from '../engine/bettingEngine'
+import { estimateEquityVsRange } from '../engine/equitySimulator'
 import type { Card } from '../types/card'
 import type { HandState, Player } from '../types/poker'
 import { cardsToCome, drawEquity, estimateDrawOuts } from './drawEquity'
 import { handNotation } from './handNotation'
-import { continueRange, continueRangePercent, openRange, openRangePercent, threeBetRange } from './rangeModel'
+import { getPersona } from './personas'
+import {
+  continueRange,
+  continueRangePercent,
+  groundTruthRangeForPlayer,
+  openRange,
+  openRangePercent,
+  threeBetRange,
+} from './rangeModel'
+import { believedRangeForOpponent } from './rangeNarrowing'
 import type { Persona } from './types'
 
 export interface BotDecision {
@@ -74,6 +84,57 @@ function handStrength(player: Player, board: HandState['board']): number {
   const equity = drawEquity(outs, cardsToCome(board.length))
 
   return Math.max(madeStrength, equity)
+}
+
+/**
+ * A simplifying proxy for multiway pots: pick the single most-relevant
+ * remaining opponent to model — whoever was the last aggressor still in the
+ * hand, falling back to any other active player. Real range-vs-range play
+ * against every remaining opponent at once is out of scope for this pass.
+ */
+function relevantOpponent(hand: HandState, selfId: string): Player | undefined {
+  const active = hand.players.filter((p) => p.id !== selfId && !p.isFolded)
+  if (active.length === 0) return undefined
+
+  for (let i = hand.actionHistory.length - 1; i >= 0; i--) {
+    const a = hand.actionHistory[i]
+    if (a.playerId === selfId) continue
+    if (a.type === 'bet' || a.type === 'raise' || a.type === 'all-in') {
+      const aggressor = active.find((p) => p.id === a.playerId)
+      if (aggressor) return aggressor
+    }
+  }
+  return active[0]
+}
+
+/**
+ * Postflop hand strength, gated by skill level (see src/personas/skill.ts):
+ * - beginner: the made-hand/draw heuristic above — never models an
+ *   opponent's range at all, exactly like a real beginner just looking at
+ *   their own cards.
+ * - intermediate: real Monte Carlo equity (see equitySimulator.ts) against
+ *   the opponent's flat PREFLOP range — modeling an opponent, but not
+ *   updating that read as they act postflop (a very real intermediate-level
+ *   habit).
+ * - advanced: the same equity engine, but against a range narrowed
+ *   street-by-street from the opponent's actual postflop actions (see
+ *   rangeNarrowing.ts) — a genuinely updating read.
+ */
+function estimatePostflopStrength(hand: HandState, player: Player, rng: () => number): number {
+  const skill = player.skillLevel ?? 'beginner'
+  const fallback = () => handStrength(player, hand.board)
+  if (skill === 'beginner') return fallback()
+
+  const opponent = relevantOpponent(hand, player.id)
+  const opponentPersona = opponent?.personaId ? getPersona(opponent.personaId) : undefined
+  if (!opponent || !opponentPersona) return fallback()
+
+  const believedRange =
+    skill === 'advanced'
+      ? believedRangeForOpponent(hand, opponent.id, opponentPersona, player.holeCards as [Card, Card])
+      : groundTruthRangeForPlayer(hand, opponent.id, opponentPersona)
+
+  return estimateEquityVsRange(player.holeCards as [Card, Card], hand.board, believedRange, { rng })
 }
 
 /**
@@ -178,7 +239,7 @@ function decidePostflop(
   rng: () => number,
 ): BotDecision {
   const legal = legalActions(hand, player.id)
-  const strength = handStrength(player, hand.board)
+  const strength = estimatePostflopStrength(hand, player, rng)
   const hasMadeHand = madeHandCategoryIndex(player, hand.board) >= 1 // at least a pair
   const canCheck = legal.callAmount === 0
 
