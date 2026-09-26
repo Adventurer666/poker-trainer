@@ -1,8 +1,11 @@
 import { useState } from 'react'
 import { legalActions } from '../engine/bettingEngine'
 import { HUMAN_ID, useGameStore } from '../store/gameStore'
+import { useRangeTrackerStore } from '../store/rangeTrackerStore'
 import { CardView } from './CardView'
 import { PlayerPod } from './PlayerPod'
+import { RangeComparison } from './RangeComparison'
+import { RangeGrid } from './RangeGrid'
 import { seatPosition } from './seatLayout'
 
 function formatChips(n: number): string {
@@ -14,6 +17,11 @@ export function Table() {
   const startNewHand = useGameStore((s) => s.startNewHand)
   const performHumanAction = useGameStore((s) => s.performHumanAction)
   const [raiseTo, setRaiseTo] = useState<number | null>(null)
+  const openPlayerId = useRangeTrackerStore((s) => s.openPlayerId)
+  const tracks = useRangeTrackerStore((s) => s.tracks)
+  const openTracker = useRangeTrackerStore((s) => s.openTracker)
+  const closeTracker = useRangeTrackerStore((s) => s.closeTracker)
+  const cycleMark = useRangeTrackerStore((s) => s.cycleMark)
 
   if (!hand) {
     return (
@@ -95,6 +103,7 @@ export function Table() {
                 showCards={showCards}
                 betThisStreet={hand.streetContributions[player.id] ?? 0}
                 isHuman={isHuman}
+                onClick={isHuman ? undefined : () => openTracker(player.id)}
               />
             </div>
           )
@@ -102,19 +111,22 @@ export function Table() {
       </div>
 
       {hand.isHandComplete ? (
-        <section className="flex flex-col items-center gap-3 rounded-lg border border-neutral-800 bg-neutral-900 p-4">
-          <p className="text-sm text-neutral-200">
-            {hand.results
-              .map((r) => `${hand.players.find((p) => p.id === r.playerId)?.name} wins ${formatChips(r.amountWon)}`)
-              .join(', ')}
-          </p>
-          <button
-            onClick={startNewHand}
-            className="rounded-md bg-neutral-100 px-4 py-2 text-sm font-medium text-neutral-950 hover:bg-white"
-          >
-            Next Hand
-          </button>
-        </section>
+        <>
+          <section className="flex flex-col items-center gap-3 rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+            <p className="text-sm text-neutral-200">
+              {hand.results
+                .map((r) => `${hand.players.find((p) => p.id === r.playerId)?.name} wins ${formatChips(r.amountWon)}`)
+                .join(', ')}
+            </p>
+            <button
+              onClick={startNewHand}
+              className="rounded-md bg-neutral-100 px-4 py-2 text-sm font-medium text-neutral-950 hover:bg-white"
+            >
+              Next Hand
+            </button>
+          </section>
+          <RangeComparison hand={hand} tracks={tracks} />
+        </>
       ) : humanTurn && legal ? (
         <section className="flex flex-wrap items-center justify-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900 p-4">
           {legal.types.includes('fold') && (
@@ -189,6 +201,39 @@ export function Table() {
             )
           })}
       </section>
+
+      {openPlayerId && (() => {
+        const trackedPlayer = hand.players.find((p) => p.id === openPlayerId)
+        if (!trackedPlayer) return null
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+            onClick={closeTracker}
+          >
+            <div
+              className="flex max-w-full flex-col items-center gap-3 rounded-lg border border-neutral-700 bg-neutral-900 p-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex w-full items-center justify-between gap-6">
+                <h2 className="text-sm font-medium text-neutral-200">
+                  {trackedPlayer.name}&apos;s range — tap a hand to mark it
+                </h2>
+                <button
+                  onClick={closeTracker}
+                  className="rounded-md border border-neutral-700 px-2 py-1 text-xs text-neutral-300 hover:bg-neutral-800"
+                >
+                  Done
+                </button>
+              </div>
+              <p className="text-[10px] text-neutral-500">Tap once for possible, twice for likely, again to clear.</p>
+              <RangeGrid
+                marks={tracks[openPlayerId] ?? {}}
+                onCellClick={(notation) => cycleMark(openPlayerId, notation)}
+              />
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }

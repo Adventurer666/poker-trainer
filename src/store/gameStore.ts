@@ -5,6 +5,7 @@ import { nextButtonSeat } from '../engine/positions'
 import { assignBotNames } from '../personas/botNames'
 import { decideBotAction } from '../personas/botDecision'
 import { getPersona, PERSONAS } from '../personas/personas'
+import { useRangeTrackerStore } from './rangeTrackerStore'
 import { POSITIONS, type BlindsConfig, type HandState, type Player } from '../types/poker'
 
 export const HUMAN_ID = 'human'
@@ -97,6 +98,7 @@ export const useGameStore = create<GameStore>((set, get) => {
     hand: null,
 
     startNewHand: () => {
+      useRangeTrackerStore.getState().resetForNewHand()
       const { seatedPlayers, buttonSeat, hand: previousHand } = get()
 
       const carriedPlayers = previousHand

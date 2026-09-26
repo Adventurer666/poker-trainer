@@ -1,5 +1,6 @@
 import { dealCards } from './deck'
 import { assignPositions, postflopActingOrder, preflopActingOrder } from './positions'
+import { resolveShowdown } from './showdown'
 import type {
   ActionType,
   BlindsConfig,
@@ -322,6 +323,7 @@ function advanceStreetOrRunout(hand: HandState): HandState {
   if (hand.street === 'river') {
     hand.street = 'showdown'
   }
+  hand.results = resolveShowdown(hand)
   hand.isHandComplete = true
   hand.toActPlayerId = null
   return hand

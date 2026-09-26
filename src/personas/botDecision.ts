@@ -4,7 +4,7 @@ import type { ActionInput } from '../engine/bettingEngine'
 import type { Card } from '../types/card'
 import type { HandState, Player } from '../types/poker'
 import { handNotation } from './handNotation'
-import { topPercentRange } from './handRanking'
+import { continueRange, continueRangePercent, openRange, openRangePercent, threeBetRange } from './rangeModel'
 import type { Persona } from './types'
 
 export interface BotDecision {
@@ -61,13 +61,13 @@ function decidePreflop(
 ): BotDecision {
   const legal = legalActions(hand, player.id)
   const notation = handNotation(player.holeCards as [Card, Card])
-  const openRangePercent = persona.openingRangeByPosition[player.position]
-  const inOpenRange = topPercentRange(openRangePercent).has(notation)
+  const myOpenRangePercent = openRangePercent(persona, player.position)
+  const inOpenRange = openRange(persona, player.position).has(notation)
 
   // No one has raised beyond the big blind yet — this is an opening decision
   // (for the BB specifically, it's "raise with the option" vs. check).
   const noOneHasRaisedYet = hand.currentBet === hand.blinds.bigBlind
-  const closenessToOpenCutoff = 1 - Math.min(1, openRangePercent / 50)
+  const closenessToOpenCutoff = 1 - Math.min(1, myOpenRangePercent / 50)
 
   if (noOneHasRaisedYet) {
     const canOpen = inOpenRange && (legal.types.includes('raise') || legal.types.includes('bet'))
@@ -94,11 +94,9 @@ function decidePreflop(
 
   // Facing a raise: continue with a tighter slice of the range, 3-bet with
   // the strongest slice of that, per this persona's 3-bet frequency.
-  const continueRangePercent = openRangePercent * 0.6
-  const threeBetRangePercent = Math.max(2, openRangePercent * (persona.tendencies.threeBetFrequency / 100) * 2)
-  const inContinueRange = topPercentRange(continueRangePercent).has(notation)
-  const inThreeBetRange = topPercentRange(threeBetRangePercent).has(notation)
-  const closeness = 1 - Math.min(1, continueRangePercent / 30)
+  const inContinueRange = continueRange(persona, player.position).has(notation)
+  const inThreeBetRange = threeBetRange(persona, player.position).has(notation)
+  const closeness = 1 - Math.min(1, continueRangePercent(persona, player.position) / 30)
 
   if (inThreeBetRange && legal.types.includes('raise')) {
     const target = clampToLegalRaise(hand.currentBet * 3, legal.minRaiseTo, legal.maxRaiseTo)

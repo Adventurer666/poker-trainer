@@ -1,12 +1,13 @@
 import { RANKS, type Rank } from '../types/card'
 
-/** All 169 canonical starting hand types, e.g. "AA", "AKs", "72o". */
+/** All 169 canonical starting hand types, e.g. "AA", "AKs", "72o" (always high rank first). */
 export function allStartingHands(): string[] {
+  const ranksDesc = [...RANKS].reverse() // A, K, Q, ..., 2
   const hands: string[] = []
-  for (let i = 0; i < RANKS.length; i++) {
-    for (let j = i; j < RANKS.length; j++) {
-      const high = RANKS[RANKS.length - 1 - j]
-      const low = RANKS[RANKS.length - 1 - i]
+  for (let i = 0; i < ranksDesc.length; i++) {
+    for (let j = i; j < ranksDesc.length; j++) {
+      const high = ranksDesc[i]
+      const low = ranksDesc[j]
       if (high === low) {
         hands.push(`${high}${low}`) // pair, e.g. "AA"
       } else {
@@ -15,7 +16,7 @@ export function allStartingHands(): string[] {
       }
     }
   }
-  return Array.from(new Set(hands))
+  return hands
 }
 
 function rankValue(rank: Rank): number {
