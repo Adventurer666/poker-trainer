@@ -3,6 +3,7 @@ import { legalActions } from '../engine/bettingEngine'
 import type { ActionInput } from '../engine/bettingEngine'
 import type { Card } from '../types/card'
 import type { HandState, Player } from '../types/poker'
+import { cardsToCome, drawEquity, estimateDrawOuts } from './drawEquity'
 import { handNotation } from './handNotation'
 import { continueRange, continueRangePercent, openRange, openRangePercent, threeBetRange } from './rangeModel'
 import type { Persona } from './types'
@@ -26,16 +27,73 @@ const HAND_CATEGORY_ORDER = [
 ]
 
 /**
- * Coarse 0..1 made-hand strength from pokersolver's hand category. This is a
- * deliberate simplification (no equity-vs-range calculation) — good enough
- * to drive believable bot decisions for v1; a real equity model is a
- * plausible later refinement, not a v1 requirement.
+ * Rough approximate showdown-equity value per made-hand category. This is
+ * NOT "category index / 9" — that linear scale badly undervalues a made
+ * hand (a bare pair scored only 0.11, meaning top pair folded to almost any
+ * bet-sized threshold). These numbers instead aim at "roughly how often
+ * this category wins a random showdown", which is still a simplification
+ * (no board-texture or kicker awareness) but is far closer to how a made
+ * hand should actually be treated than a linear index.
+ */
+const HAND_CATEGORY_EQUITY: Record<string, number> = {
+  'High Card': 0.15,
+  Pair: 0.45,
+  'Two Pair': 0.65,
+  'Three of a Kind': 0.75,
+  Straight: 0.82,
+  Flush: 0.87,
+  'Full House': 0.93,
+  'Four of a Kind': 0.97,
+  'Straight Flush': 0.99,
+  'Royal Flush': 1,
+}
+
+/** Category index (0 = High Card .. 9 = Royal Flush), or -1 before there's a board to evaluate against. */
+function madeHandCategoryIndex(player: Player, board: HandState['board']): number {
+  if (!player.holeCards || board.length < 3) return -1
+  const evaluated = evaluateHand(player.id, player.holeCards, board)
+  return HAND_CATEGORY_ORDER.indexOf(evaluated.name)
+}
+
+/**
+ * 0..1 hand strength: the made hand's approximate equity (see
+ * HAND_CATEGORY_EQUITY), blended with a rough draw-equity estimate
+ * (flush/straight draws, via the rule of 4-and-2) whenever that's actually
+ * higher. This is still a deliberate simplification (no real
+ * equity-vs-range calculation), but it stops a flush draw or an open-ender
+ * from being scored identically to 7-2 offsuit — which was previously
+ * making bots fold draws (and, via the old linear scale, even made hands
+ * like top pair) to any bet, regardless of their odds to continue.
  */
 function handStrength(player: Player, board: HandState['board']): number {
-  if (!player.holeCards || board.length < 3) return 0
-  const evaluated = evaluateHand(player.id, player.holeCards, board)
-  const index = HAND_CATEGORY_ORDER.indexOf(evaluated.name)
-  return index < 0 ? 0 : index / (HAND_CATEGORY_ORDER.length - 1)
+  const index = madeHandCategoryIndex(player, board)
+  if (index < 0) return 0
+  const madeStrength = HAND_CATEGORY_EQUITY[HAND_CATEGORY_ORDER[index]] ?? 0.15
+
+  const outs = estimateDrawOuts(player.holeCards as [Card, Card], board)
+  const equity = drawEquity(outs, cardsToCome(board.length))
+
+  return Math.max(madeStrength, equity)
+}
+
+/**
+ * How much made/draw strength a persona needs to continue, scaled by how
+ * loose they play overall (their VPIP). Previously this threshold was the
+ * same for every persona, so The Rock and the Calling Station folded to a
+ * bet at the exact same strength — now a loose player needs meaningfully
+ * less to keep calling, and a tight player needs slightly more.
+ */
+function requiredStrengthFor(persona: Persona, potOddsFactor: number): number {
+  const base = 0.1 + potOddsFactor * 0.5
+  // vpip 12 (The Rock) -> ~0 looseness; vpip 55 (The Maniac) -> ~1 looseness.
+  const looseness = Math.min(1, Math.max(0, (persona.tendencies.vpip - 12) / 43))
+  const adjusted = base * (1 - looseness * 0.35)
+  // Floor stays at/above plain "High Card" equity (0.15) so even the
+  // loosest persona still folds air outright sometimes, rather than the
+  // threshold dropping low enough to call literally any two cards for
+  // free every time — looser personas instead lean on the bluff-catch
+  // roll below to call more OFTEN, not unconditionally.
+  return Math.min(0.9, Math.max(0.16, adjusted))
 }
 
 function lerp(min: number, max: number, t: number): number {
@@ -121,12 +179,12 @@ function decidePostflop(
 ): BotDecision {
   const legal = legalActions(hand, player.id)
   const strength = handStrength(player, hand.board)
+  const hasMadeHand = madeHandCategoryIndex(player, hand.board) >= 1 // at least a pair
   const canCheck = legal.callAmount === 0
 
   if (canCheck) {
-    const valueThreshold = 0.1 // roughly "at least a pair"
-    const wantsValueBet = strength >= valueThreshold && rng() < persona.tendencies.cbetFrequency / 100
-    const wantsBluff = strength < valueThreshold && rng() < persona.tendencies.bluffFrequency / 100
+    const wantsValueBet = hasMadeHand && rng() < persona.tendencies.cbetFrequency / 100
+    const wantsBluff = !hasMadeHand && rng() < persona.tendencies.bluffFrequency / 100
     if ((wantsValueBet || wantsBluff) && legal.types.includes('bet')) {
       const target = clampToLegalRaise(
         hand.pot * persona.tendencies.sizingTendency,
@@ -142,7 +200,7 @@ function decidePostflop(
   }
 
   const potOddsFactor = legal.callAmount / (hand.pot + legal.callAmount)
-  const requiredStrength = Math.min(0.9, 0.1 + potOddsFactor * 0.5)
+  const requiredStrength = requiredStrengthFor(persona, potOddsFactor)
   const closeness = 1 - Math.abs(strength - requiredStrength)
 
   if (strength >= requiredStrength + 0.25 && legal.types.includes('raise')) {
@@ -156,13 +214,20 @@ function decidePostflop(
   if (strength >= requiredStrength) {
     return { action: { type: 'call' }, thinkTimeMs: thinkTime(persona, closeness, false, rng) }
   }
-  if (rng() < (persona.tendencies.bluffFrequency / 100) * 0.3 && legal.types.includes('raise')) {
+  if (rng() < (persona.tendencies.bluffFrequency / 100) * 0.35 && legal.types.includes('raise')) {
     const target = clampToLegalRaise(
       hand.currentBet + hand.pot * persona.tendencies.sizingTendency,
       legal.minRaiseTo,
       legal.maxRaiseTo,
     )
     return { action: { type: 'raise', amount: target }, thinkTimeMs: thinkTime(persona, 0.85, true, rng) }
+  }
+  // Below their real continuing threshold, but a loose-enough persona with
+  // good enough pot odds will still bluff-catch sometimes rather than
+  // folding on cue every single time.
+  const bluffCatchChance = (persona.tendencies.vpip / 100) * (1 - potOddsFactor) * 0.3
+  if (rng() < bluffCatchChance) {
+    return { action: { type: 'call' }, thinkTimeMs: thinkTime(persona, 0.4, false, rng) }
   }
   return { action: { type: 'fold' }, thinkTimeMs: thinkTime(persona, closeness, false, rng) }
 }
