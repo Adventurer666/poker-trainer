@@ -19,7 +19,6 @@ interface PlayerPodProps {
   isToAct: boolean
   isButton: boolean
   showCards: boolean
-  betThisStreet: number
   isHuman: boolean
   /** When provided, the pod becomes clickable (opens this opponent's range tracker). */
   onClick?: () => void
@@ -33,11 +32,10 @@ interface PlayerPodContentProps {
   player: Player
   isButton: boolean
   showCards: boolean
-  betThisStreet: number
   avatarColor: string
 }
 
-function PlayerPodContent({ player, isButton, showCards, betThisStreet, avatarColor }: PlayerPodContentProps) {
+function PlayerPodContent({ player, isButton, showCards, avatarColor }: PlayerPodContentProps) {
   return (
     <>
       {isButton && (
@@ -68,17 +66,11 @@ function PlayerPodContent({ player, isButton, showCards, betThisStreet, avatarCo
           All-in
         </span>
       )}
-
-      {betThisStreet > 0 && !player.isFolded && (
-        <span className="absolute -bottom-5 rounded-full border border-neutral-700 bg-neutral-950 px-1.5 py-0.5 text-[8px] text-neutral-300 sm:-bottom-6 sm:px-2 sm:text-[10px]">
-          {formatChips(betThisStreet)}
-        </span>
-      )}
     </>
   )
 }
 
-export function PlayerPod({ player, isToAct, isButton, showCards, betThisStreet, isHuman, onClick }: PlayerPodProps) {
+export function PlayerPod({ player, isToAct, isButton, showCards, isHuman, onClick }: PlayerPodProps) {
   const avatarColor = AVATAR_COLORS[player.seat % AVATAR_COLORS.length]
   const containerClassName = `relative flex flex-col items-center gap-0.5 rounded-lg border px-1.5 py-1 backdrop-blur-sm transition-all sm:gap-1 sm:rounded-xl sm:px-2 sm:py-2 ${
     isHuman ? 'w-20 sm:w-28' : 'w-16 sm:w-24'
@@ -89,13 +81,7 @@ export function PlayerPod({ player, isToAct, isButton, showCards, betThisStreet,
   } ${player.isFolded ? 'opacity-35 grayscale' : ''} ${onClick ? 'cursor-pointer hover:border-neutral-500' : ''}`
 
   const content = (
-    <PlayerPodContent
-      player={player}
-      isButton={isButton}
-      showCards={showCards}
-      betThisStreet={betThisStreet}
-      avatarColor={avatarColor}
-    />
+    <PlayerPodContent player={player} isButton={isButton} showCards={showCards} avatarColor={avatarColor} />
   )
 
   if (onClick) {

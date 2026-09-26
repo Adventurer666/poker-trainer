@@ -1,12 +1,13 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { legalActions } from '../engine/bettingEngine'
 import { HUMAN_ID, useGameStore } from '../store/gameStore'
 import { useRangeTrackerStore } from '../store/rangeTrackerStore'
 import { CardView } from './CardView'
+import { ChipStack } from './ChipStack'
 import { PlayerPod } from './PlayerPod'
 import { RangeComparison } from './RangeComparison'
 import { RangeGrid } from './RangeGrid'
-import { seatPosition } from './seatLayout'
+import { betPosition, seatPosition } from './seatLayout'
 
 function formatChips(n: number): string {
   return n.toLocaleString('en-US')
@@ -22,6 +23,18 @@ export function Table() {
   const openTracker = useRangeTrackerStore((s) => s.openTracker)
   const closeTracker = useRangeTrackerStore((s) => s.closeTracker)
   const cycleMark = useRangeTrackerStore((s) => s.cycleMark)
+
+  // Which opponent's "Track range / Reveal cards" menu is open, if any.
+  const [menuPlayerId, setMenuPlayerId] = useState<string | null>(null)
+  // The confirm-then-reveal flow for peeking at a specific opponent's cards.
+  const [revealState, setRevealState] = useState<{ playerId: string; step: 'confirm' | 'shown' } | null>(null)
+
+  // A fresh hand should never carry over an open menu or a card reveal from the last one.
+  useEffect(() => {
+    setMenuPlayerId(null)
+    setRevealState(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hand?.handId])
 
   if (!hand) {
     return (
@@ -101,10 +114,25 @@ export function Table() {
                 isToAct={hand.toActPlayerId === player.id}
                 isButton={hand.buttonSeat === player.seat}
                 showCards={showCards}
-                betThisStreet={hand.streetContributions[player.id] ?? 0}
                 isHuman={isHuman}
-                onClick={isHuman ? undefined : () => openTracker(player.id)}
+                onClick={isHuman ? undefined : () => setMenuPlayerId(player.id)}
               />
+            </div>
+          )
+        })}
+
+        {/* Bet chips: shown between each player and the pot, not on the pod itself */}
+        {hand.players.map((player) => {
+          const amount = hand.streetContributions[player.id] ?? 0
+          if (amount <= 0 || player.isFolded) return null
+          const { left, top } = betPosition(player.seat, totalSeats)
+          return (
+            <div
+              key={`bet-${player.id}`}
+              className="absolute -translate-x-1/2 -translate-y-1/2"
+              style={{ left, top }}
+            >
+              <ChipStack amount={amount} />
             </div>
           )
         })}
@@ -201,6 +229,95 @@ export function Table() {
             )
           })}
       </section>
+
+      {menuPlayerId && (() => {
+        const menuPlayer = hand.players.find((p) => p.id === menuPlayerId)
+        if (!menuPlayer) return null
+        const close = () => setMenuPlayerId(null)
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={close}>
+            <div
+              className="flex w-56 flex-col gap-2 rounded-lg border border-neutral-700 bg-neutral-900 p-3"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h2 className="px-1 text-sm font-medium text-neutral-200">{menuPlayer.name}</h2>
+              <button
+                onClick={() => {
+                  close()
+                  openTracker(menuPlayer.id)
+                }}
+                className="rounded-md border border-neutral-700 px-3 py-2 text-left text-sm text-neutral-200 hover:bg-neutral-800"
+              >
+                Track range
+              </button>
+              <button
+                onClick={() => {
+                  close()
+                  setRevealState({ playerId: menuPlayer.id, step: 'confirm' })
+                }}
+                className="rounded-md border border-neutral-700 px-3 py-2 text-left text-sm text-neutral-200 hover:bg-neutral-800"
+              >
+                Reveal cards
+              </button>
+              <button
+                onClick={close}
+                className="rounded-md px-3 py-2 text-left text-xs text-neutral-500 hover:text-neutral-300"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )
+      })()}
+
+      {revealState && (() => {
+        const revealPlayer = hand.players.find((p) => p.id === revealState.playerId)
+        if (!revealPlayer) return null
+        const cancel = () => setRevealState(null)
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={cancel}>
+            <div
+              className="flex max-w-xs flex-col items-center gap-4 rounded-lg border border-neutral-700 bg-neutral-900 p-5 text-center"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {revealState.step === 'confirm' ? (
+                <>
+                  <p className="text-sm text-neutral-200">
+                    Reveal {revealPlayer.name}&apos;s cards? This skips reading them from their actions.
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={cancel}
+                      className="rounded-md border border-neutral-700 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-800"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => setRevealState({ playerId: revealPlayer.id, step: 'shown' })}
+                      className="rounded-md bg-neutral-100 px-3 py-2 text-sm font-medium text-neutral-950 hover:bg-white"
+                    >
+                      Yes, show me
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm text-neutral-200">{revealPlayer.name}&apos;s cards</p>
+                  <div className="flex gap-1">
+                    {revealPlayer.holeCards?.map((card, i) => <CardView key={i} card={card} />)}
+                  </div>
+                  <button
+                    onClick={cancel}
+                    className="rounded-md border border-neutral-700 px-3 py-2 text-sm text-neutral-300 hover:bg-neutral-800"
+                  >
+                    Close
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        )
+      })()}
 
       {openPlayerId && (() => {
         const trackedPlayer = hand.players.find((p) => p.id === openPlayerId)
