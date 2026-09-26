@@ -7,7 +7,7 @@ export function CardView({ card }: { card: Card }) {
   const isRed = RED_SUITS.has(card.suit)
   return (
     <span
-      className={`inline-flex h-9 w-7 items-center justify-center rounded border border-neutral-700 bg-neutral-900 text-sm font-medium ${
+      className={`inline-flex h-6 w-5 items-center justify-center rounded border border-neutral-700 bg-neutral-900 text-[10px] font-medium sm:h-9 sm:w-7 sm:text-sm ${
         isRed ? 'text-red-400' : 'text-neutral-100'
       }`}
     >
@@ -19,7 +19,7 @@ export function CardView({ card }: { card: Card }) {
 
 export function CardBack() {
   return (
-    <span className="inline-flex h-9 w-7 items-center justify-center rounded border border-neutral-700 bg-neutral-800 text-neutral-600">
+    <span className="inline-flex h-6 w-5 items-center justify-center rounded border border-neutral-700 bg-neutral-800 text-[10px] text-neutral-600 sm:h-9 sm:w-7">
       ?
     </span>
   )

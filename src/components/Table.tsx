@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { legalActions } from '../engine/bettingEngine'
 import { HUMAN_ID, useGameStore } from '../store/gameStore'
-import { CardBack, CardView } from './CardView'
+import { CardView } from './CardView'
+import { PlayerPod } from './PlayerPod'
+import { seatPosition } from './seatLayout'
 
 function formatChips(n: number): string {
   return n.toLocaleString('en-US')
@@ -30,6 +32,7 @@ export function Table() {
 
   const humanTurn = hand.toActPlayerId === HUMAN_ID
   const legal = humanTurn ? legalActions(hand, HUMAN_ID) : null
+  const totalSeats = hand.players.length
 
   function act(type: 'fold' | 'check' | 'call' | 'all-in') {
     performHumanAction({ type })
@@ -46,59 +49,64 @@ export function Table() {
   }
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6 p-6">
+    <div className="mx-auto flex max-w-4xl flex-col gap-5 p-4 sm:p-6">
       <header className="flex items-center justify-between">
         <h1 className="text-lg font-medium text-neutral-100">Poker Trainer</h1>
         <span className="text-sm capitalize text-neutral-400">{hand.street}</span>
       </header>
 
-      <section className="flex flex-col items-center gap-3 rounded-lg border border-neutral-800 bg-neutral-900 p-4">
-        <div className="text-sm text-neutral-400">Pot: {formatChips(hand.pot)}</div>
-        <div className="flex gap-2">
-          {hand.board.map((card, i) => (
-            <CardView key={i} card={card} />
-          ))}
-          {hand.board.length === 0 && <span className="text-xs text-neutral-600">No community cards yet</span>}
+      {/* The table itself */}
+      <div
+        className="relative mx-auto aspect-[16/11] w-full max-w-3xl rounded-[50%] border-[10px] border-neutral-800 shadow-2xl"
+        style={{
+          background:
+            'radial-gradient(ellipse at center, #0f3d2e 0%, #0a2e22 60%, #0a2018 100%)',
+        }}
+      >
+        {/* Center: pot + board */}
+        <div className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-2">
+          <div className="rounded-full border border-emerald-900/60 bg-black/30 px-3 py-1 text-xs text-emerald-200">
+            Pot: {formatChips(hand.pot)}
+          </div>
+          <div className="flex gap-1">
+            {hand.board.map((card, i) => (
+              <CardView key={i} card={card} />
+            ))}
+          </div>
         </div>
-      </section>
 
-      <section className="grid grid-cols-3 gap-3 sm:grid-cols-3">
+        {/* Seats */}
         {hand.players.map((player) => {
-          const isToAct = hand.toActPlayerId === player.id
+          const { left, top } = seatPosition(player.seat, totalSeats)
+          const isHuman = player.id === HUMAN_ID
           const showCards =
-            player.id === HUMAN_ID ||
+            isHuman ||
             (hand.isHandComplete && !player.isFolded && hand.results[0]?.wonUncontested !== true)
           return (
             <div
               key={player.id}
-              className={`rounded-lg border p-3 text-sm ${
-                isToAct ? 'border-neutral-400 bg-neutral-800' : 'border-neutral-800 bg-neutral-900'
-              } ${player.isFolded ? 'opacity-40' : ''}`}
+              className="absolute -translate-x-1/2 -translate-y-1/2"
+              style={{ left, top }}
             >
-              <div className="flex items-center justify-between text-neutral-200">
-                <span className="font-medium">{player.name}</span>
-                <span className="text-xs text-neutral-500">{player.position}</span>
-              </div>
-              <div className="mt-1 text-neutral-400">{formatChips(player.stack)} chips</div>
-              <div className="mt-1 text-xs text-neutral-500">
-                Bet: {formatChips(hand.streetContributions[player.id] ?? 0)}
-                {player.isAllIn ? ' · all-in' : ''}
-                {player.isFolded ? ' · folded' : ''}
-              </div>
-              <div className="mt-2 flex gap-1">
-                {player.holeCards?.map((card, i) =>
-                  showCards ? <CardView key={i} card={card} /> : <CardBack key={i} />,
-                )}
-              </div>
+              <PlayerPod
+                player={player}
+                isToAct={hand.toActPlayerId === player.id}
+                isButton={hand.buttonSeat === player.seat}
+                showCards={showCards}
+                betThisStreet={hand.streetContributions[player.id] ?? 0}
+                isHuman={isHuman}
+              />
             </div>
           )
         })}
-      </section>
+      </div>
 
       {hand.isHandComplete ? (
         <section className="flex flex-col items-center gap-3 rounded-lg border border-neutral-800 bg-neutral-900 p-4">
           <p className="text-sm text-neutral-200">
-            {hand.results.map((r) => `${hand.players.find((p) => p.id === r.playerId)?.name} wins ${formatChips(r.amountWon)}`).join(', ')}
+            {hand.results
+              .map((r) => `${hand.players.find((p) => p.id === r.playerId)?.name} wins ${formatChips(r.amountWon)}`)
+              .join(', ')}
           </p>
           <button
             onClick={startNewHand}
@@ -108,19 +116,28 @@ export function Table() {
           </button>
         </section>
       ) : humanTurn && legal ? (
-        <section className="flex flex-wrap items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+        <section className="flex flex-wrap items-center justify-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900 p-4">
           {legal.types.includes('fold') && (
-            <button onClick={() => act('fold')} className="rounded-md border border-neutral-700 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-800">
+            <button
+              onClick={() => act('fold')}
+              className="rounded-md border border-neutral-700 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-800"
+            >
               Fold
             </button>
           )}
           {legal.types.includes('check') && (
-            <button onClick={() => act('check')} className="rounded-md border border-neutral-700 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-800">
+            <button
+              onClick={() => act('check')}
+              className="rounded-md border border-neutral-700 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-800"
+            >
               Check
             </button>
           )}
           {legal.types.includes('call') && (
-            <button onClick={() => act('call')} className="rounded-md border border-neutral-700 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-800">
+            <button
+              onClick={() => act('call')}
+              className="rounded-md border border-neutral-700 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-800"
+            >
               Call {formatChips(legal.callAmount)}
             </button>
           )}
@@ -134,13 +151,19 @@ export function Table() {
                 onChange={(e) => setRaiseTo(Number(e.target.value))}
                 className="w-24 rounded-md border border-neutral-700 bg-neutral-950 px-2 py-2 text-sm text-neutral-100"
               />
-              <button onClick={actRaise} className="rounded-md border border-neutral-700 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-800">
+              <button
+                onClick={actRaise}
+                className="rounded-md border border-neutral-700 px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-800"
+              >
                 {legal.types.includes('bet') ? 'Bet' : 'Raise'}
               </button>
             </div>
           )}
           {legal.types.includes('all-in') && (
-            <button onClick={() => act('all-in')} className="rounded-md border border-red-900 px-3 py-2 text-sm text-red-300 hover:bg-red-950">
+            <button
+              onClick={() => act('all-in')}
+              className="rounded-md border border-red-900 px-3 py-2 text-sm text-red-300 hover:bg-red-950"
+            >
               All-in
             </button>
           )}
@@ -151,7 +174,7 @@ export function Table() {
         </section>
       )}
 
-      <section className="max-h-40 overflow-y-auto rounded-lg border border-neutral-800 bg-neutral-900 p-3 text-xs text-neutral-500">
+      <section className="max-h-32 overflow-y-auto rounded-lg border border-neutral-800 bg-neutral-900 p-3 text-xs text-neutral-500">
         {hand.actionHistory
           .slice()
           .reverse()
@@ -160,7 +183,8 @@ export function Table() {
             return (
               <div key={i}>
                 {name} {a.type}
-                {a.amount > 0 ? ` ${formatChips(a.amount)}` : ''} <span className="text-neutral-700">({a.street})</span>
+                {a.amount > 0 ? ` ${formatChips(a.amount)}` : ''}{' '}
+                <span className="text-neutral-700">({a.street})</span>
               </div>
             )
           })}

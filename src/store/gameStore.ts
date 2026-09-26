@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { applyAction, createHand, type ActionInput } from '../engine/bettingEngine'
 import { createDeck, shuffleDeck } from '../engine/deck'
 import { nextButtonSeat } from '../engine/positions'
+import { assignBotNames } from '../personas/botNames'
 import { decideBotAction } from '../personas/botDecision'
 import { getPersona, PERSONAS } from '../personas/personas'
 import { POSITIONS, type BlindsConfig, type HandState, type Player } from '../types/poker'
@@ -11,7 +12,21 @@ const STARTING_STACK = 10000
 const BLINDS: BlindsConfig = { smallBlind: 50, bigBlind: 100 }
 const NUM_SEATS = POSITIONS.length
 
+function shuffle<T>(items: T[], rng: () => number): T[] {
+  const result = [...items]
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1))
+    ;[result[i], result[j]] = [result[j], result[i]]
+  }
+  return result
+}
+
 function initialPlayers(): Player[] {
+  // Both names AND which persona sits in which seat are shuffled fresh each
+  // session — otherwise "seat 3 is always the maniac" becomes memorizable
+  // across sessions, defeating the point of hiding player type at all.
+  const botNames = assignBotNames(NUM_SEATS - 1)
+  const personaOrder = shuffle(PERSONAS, Math.random)
   return POSITIONS.map((position, seat) => {
     if (seat === 0) {
       return {
@@ -25,11 +40,11 @@ function initialPlayers(): Player[] {
         isAllIn: false,
       } satisfies Player
     }
-    const persona = PERSONAS[(seat - 1) % PERSONAS.length]
+    const persona = personaOrder[(seat - 1) % personaOrder.length]
     return {
       id: `bot-${seat}`,
       kind: 'bot',
-      name: persona.displayName,
+      name: botNames[seat - 1],
       position,
       stack: STARTING_STACK,
       seat,
